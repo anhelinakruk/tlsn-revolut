@@ -1,7 +1,7 @@
 use std::{collections::HashMap, fs, ops::Range};
 use noir::{
     barretenberg::{
-        prove::prove_ultra_honk,
+        prove::{prove_ultra_honk, prove_ultra_keccak_honk},
         srs::{setup_srs, setup_srs_from_bytecode},
         utils::get_honk_verification_key,
         verify::verify_ultra_honk,
@@ -106,6 +106,12 @@ fn main() {
         }
     println!("Transcript openings: {:?}", transcript_openings);
 
+    for opening in &transcript_openings {
+        println!("Opening: {:?}", opening);
+        println!("Data : {:?}", String::from_utf8_lossy(&opening.data));
+        println!("Data length: {:?}", opening.data.len());
+    }
+
     witness.extend(key[1..].iter().map(|n| n.to_string()));
     witness.extend(message.iter().map(|n| n.to_string()));
     witness.extend(signature.iter().map(|n| n.to_string()));
@@ -126,7 +132,7 @@ fn main() {
     witness.extend(encoding_commitment.clone().unwrap().secret.seed().iter().map(|n| n.to_string()));
     witness.extend(encoding_commitment.clone().unwrap().secret.delta().iter().map(|n| n.to_string()));
 
-    println!("Witness: {:?}", witness);
+    // println!("Witness: {:?}", witness);
 
     println!("Verifying presentation");
     verify_presentation(witness);
@@ -138,8 +144,10 @@ fn verify_presentation(witness: Vec<String>) {
 
     let bytecode = json["bytecode"].as_str().unwrap();
 
-    setup_srs_from_bytecode(bytecode, None, false).unwrap();
-    setup_srs(4194304, None).unwrap();
+    println!("✔ Bytecode loaded");
+    setup_srs_from_bytecode(bytecode, Some("transcript00.dat") , false).unwrap();
+    println!("✔ SRS setup from bytecode complete");
+    setup_srs(2584416, None).unwrap();
 
     println!("✔ SRS setup complete");
 
@@ -149,10 +157,12 @@ fn verify_presentation(witness: Vec<String>) {
         .collect::<Vec<&str>>();
 
     let witness = from_vec_str_to_witness_map(witness_strings).unwrap();
+    println!("✔ Witness created");
 
-    let proof = prove_ultra_honk(bytecode, witness, false).unwrap();
-
+    let proof = prove_ultra_keccak_honk(bytecode, witness, false).unwrap();
+    println!("✔ Proof generated");
     let vk = get_honk_verification_key(bytecode, false).unwrap();
+    println!("✔ Verification key retrieved");
     let is_valid = verify_ultra_honk(proof, vk).unwrap();
     println!("✔ proof valid? {:?}", is_valid);
 }

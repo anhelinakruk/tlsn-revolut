@@ -17,7 +17,7 @@ preamble = _{ "HTTP/" ~ ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT+ ~ " " ~ ASCII_DIGIT+ ~
 headers = _{ header* }
 header = { header_name ~ ": " ~ header_value ~ NEWLINE }
 header_name = { (ASCII_ALPHANUMERIC | "-")+ }
-header_value = { (ASCII_ALPHANUMERIC | "-" | ";" | " " | ":" | "," | "/" | "'" | "\"" | "." | "=" | "+" | "*" | "_" | "{" | "}")+ }
+header_value = { (ASCII_ALPHANUMERIC | "-" | ";" | " " | ":" | "," | "/" | "'" | "\"" | "." | "=" | "+" | "*" | "_" | "{" | "}" | "(" | ")")+ }
 
 object = {
     "{" ~ "}" |

@@ -2,7 +2,6 @@ use macro_rules_attribute::apply;
 use serde::{Deserialize, Serialize};
 use smol_macros::main;
 use thiserror::Error;
-use tls_core::verify::WebPkiVerifier;
 use tlsn_core::{
     CryptoProvider,
     connection::ServerName,
@@ -11,29 +10,10 @@ use tlsn_core::{
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RevolutTransaction {
-    transaction_id: String,
-    state: String,
-    comment: String,
-    currency: String,
-    amount: i64,
-    beneficiary: BeneficiaryType,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum BeneficiaryType {
-    External {
-        iban: String,
-        bic: String,
-    },
-    Internal {
-        id: String,
-        #[serde(rename = "type")]
-        account_type: String,
-        username: String,
-        code: String,
-    },
+pub struct BinancePriceData {
+    symbol: String,
+    price: String,
+    mins: u64,
 }
 
 #[derive(Error, Debug)]
@@ -62,8 +42,8 @@ pub async fn verify(presentation: Vec<u8>) -> Result<(), AppError> {
     let sent = bytes_to_redacted_string(&sent);
     let received = bytes_to_redacted_string(&received);
 
-    let transaction: Option<RevolutTransaction> = parse_transaction(&sent, &received);
-    println!("transaction: {:?}", transaction);
+    let price_data: Option<BinancePriceData> = parse_price_data(&sent, &received);
+    println!("price_data: {:?}", price_data);
 
     println!("Presentation verified");
 
@@ -71,18 +51,8 @@ pub async fn verify(presentation: Vec<u8>) -> Result<(), AppError> {
 }
 
 pub async fn verify_presentation(presentation: Presentation) -> (Vec<u8>, Vec<u8>, ServerName) {
-    // This is only required for offline testing with the server-fixture. In
-    // production, use `CryptoProvider::default()` instead.
-    let mut root_store = tls_core::anchors::RootCertStore::empty();
-    root_store
-        .add(&tls_core::key::Certificate(
-            include_bytes!("../../certs/rootCA.der").to_vec(),
-        ))
-        .unwrap();
-    let crypto_provider = CryptoProvider {
-        cert: WebPkiVerifier::new(root_store, None),
-        ..Default::default()
-    };
+    // Use default crypto provider for production APIs like Binance
+    let crypto_provider = CryptoProvider::default();
 
     let VerifyingKey {
         alg,
@@ -104,10 +74,54 @@ pub async fn verify_presentation(presentation: Presentation) -> (Vec<u8>, Vec<u8
     let server_name = server_name.expect("prover should have revealed server name");
     let transcript = transcript.expect("prover should have revealed transcript data");
 
+    // Debug transcript information
+    println!("\n=== TRANSCRIPT DEBUG ===");
+    println!("Transcript sent length: {}", transcript.len_sent());
+    println!("Transcript received length: {}", transcript.len_received());
+    
+    // Get authenticated (revealed) ranges
+    let sent_authed = transcript.sent_authed();
+    let received_authed = transcript.received_authed();
+    
+    println!("Sent authenticated ranges: {} ranges", sent_authed.iter_ranges().count());
+    println!("Received authenticated ranges: {} ranges", received_authed.iter_ranges().count());
+    
     // Check sent data: check host.
     let sent = transcript.sent_unsafe().to_vec();
     // Check received data: check json and version number.
     let received = transcript.received_unsafe().to_vec();
+    
+    println!("Sent data length: {}", sent.len());
+    println!("Received data length: {}", received.len());
+    
+    // Show authenticated (revealed) ranges
+    println!("\n=== SENT AUTHENTICATED RANGES ===");
+    for (i, range) in sent_authed.iter_ranges().enumerate() {
+        let data = &sent[range.clone()];
+        let content = String::from_utf8_lossy(data);
+        println!("Sent range {}: {:?} = {:?}", i, range, content);
+    }
+    
+    println!("\n=== RECEIVED AUTHENTICATED RANGES ===");
+    for (i, range) in received_authed.iter_ranges().enumerate() {
+        let data = &received[range.clone()];
+        let content = String::from_utf8_lossy(data);
+        println!("Received range {}: {:?} = {:?}", i, range, content);
+    }
+    
+    // Show the authenticated data directly
+    println!("\n=== AUTHENTICATED DATA ===");
+    let sent_authed_data: Vec<u8> = sent_authed.iter_ranges()
+        .flat_map(|range| sent[range.clone()].iter().cloned())
+        .collect();
+    let received_authed_data: Vec<u8> = received_authed.iter_ranges()
+        .flat_map(|range| received[range.clone()].iter().cloned())
+        .collect();
+        
+    println!("Sent authenticated data: {:?}", String::from_utf8_lossy(&sent_authed_data));
+    println!("Received authenticated data: {:?}", String::from_utf8_lossy(&received_authed_data));
+    
+    println!("========================\n");
 
     (sent, received, server_name)
 }
@@ -119,47 +133,17 @@ fn bytes_to_redacted_string(bytes: &[u8]) -> String {
         .replace('\0', "🙈")
 }
 
-fn parse_transaction(sent: &str, received: &str) -> Option<RevolutTransaction> {
-    let transaction_id = extract_required_value(sent, r"transaction/([\w-]+)")?;
-    let state = extract_required_value(received, r#""state":"([^"]+)""#)?;
-    let currency = extract_required_value(received, r#""currency":"([^"]+)""#)?;
-    let amount: i64 = extract_required_value(received, r#""amount":(-?\d+)"#)?
+fn parse_price_data(sent: &str, received: &str) -> Option<BinancePriceData> {
+    let symbol = extract_required_value(sent, r"symbol=([A-Z]+)")?;
+    let price = extract_required_value(received, r#""price":"([0-9.]+)""#)?;
+    let mins = extract_required_value(received, r#""mins":(\d+)"#)?
         .parse()
         .ok()?;
-    let comment = extract_value(received, r#""comment":"([^"]+)""#)?;
 
-    let iban = extract_value(
-        received,
-        r#""account":\{(?:[^}]*,)?(?:"IBAN"|"iban"):"([^"]+)""#,
-    );
-    let bic = extract_value(
-        received,
-        r#""account":\{(?:[^}]*,)?(?:"BIC"|"bic"):"([^"]+)""#,
-    );
-
-    let beneficiary = match (iban, bic) {
-        (Some(iban), Some(bic)) => BeneficiaryType::External { iban, bic },
-        _ => {
-            let ben_id = extract_required_value(received, r#""id":"([^"]+)""#)?;
-            let ben_type = extract_required_value(received, r#""type":"([^"]+)""#)?;
-            let ben_username = extract_required_value(received, r#""username":"([^"]+)""#)?;
-            let ben_code = extract_required_value(received, r#""code":"([^"]+)""#)?;
-            BeneficiaryType::Internal {
-                id: ben_id,
-                account_type: ben_type,
-                username: ben_username,
-                code: ben_code,
-            }
-        }
-    };
-
-    Some(RevolutTransaction {
-        transaction_id,
-        state,
-        currency,
-        amount,
-        comment,
-        beneficiary,
+    Some(BinancePriceData {
+        symbol,
+        price,
+        mins,
     })
 }
 

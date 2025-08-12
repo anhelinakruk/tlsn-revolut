@@ -92,19 +92,8 @@ pub async fn notarize(
 
     println!("Notarization request sent");
 
-    let mut root_store = tls_core::anchors::RootCertStore::empty();
-    root_store
-        .add(&tls_core::key::Certificate(
-            include_bytes!("../certs/rootCA.der").to_vec(),
-        ))
-        .map_err(|e| {
-            ProverError::NotarizationFailed(format!("Failed to add certificate: {}", e))
-        })?;
-
-    let crypto_provider = CryptoProvider {
-        cert: WebPkiVerifier::new(root_store, None),
-        ..Default::default()
-    };
+    // Use default crypto provider for production APIs like Binance
+    let crypto_provider = CryptoProvider::default();
 
     let prover_config = ProverConfig::builder()
         .server_name(server_host)
@@ -274,7 +263,8 @@ pub fn get_received_data_ranges<T: TranscriptProvider>(provider: &T) -> Vec<Rang
         Ok(p) => p,
         Err(e) => {
             println!("Failed to parse response: {}", e);
-            return Vec::new();
+            // Fallback: try to find JSON manually for Binance API
+            return get_binance_price_ranges(&recv_string);
         }
     };
 
@@ -283,17 +273,17 @@ pub fn get_received_data_ranges<T: TranscriptProvider>(provider: &T) -> Vec<Rang
         Ok(r) => r,
         Err(e) => {
             println!("Failed to convert parse result to Response: {}", e);
-            return Vec::new();
+            // Fallback: try to find JSON manually for Binance API
+            return get_binance_price_ranges(&recv_string);
         }
     };
 
-    // Get the ranges to reveal
+    // Get the ranges to reveal for Binance price data
     response.get_all_ranges_for_keypaths(
         &[
-            "comment",
-            "currency",
-            "amount",
-            "recipient.username",
+            "price",
+            "mins",
+            "closeTime",
         ],
         &[],
     )
@@ -367,4 +357,46 @@ pub async fn redact_and_reveal_sent_data(
 ) -> (Prover<Committed>, Vec<Range<usize>>) {
     let ranges = get_sent_data_ranges(&prover);
     (prover, ranges)
+}
+
+/// Fallback function to manually find Binance price data ranges
+fn get_binance_price_ranges(response: &str) -> Vec<Range<usize>> {
+    let mut ranges = Vec::new();
+    
+    // Find JSON data in response
+    if let Some(json_start) = response.find("{") {
+        if let Some(json_end) = response.rfind("}") {
+            let json_content = &response[json_start..=json_end];
+            
+            // Find "price" field
+            if let Some(price_start) = json_content.find("\"price\":\"") {
+                let price_field_start = json_start + price_start;
+                if let Some(price_end) = json_content[price_start..].find("\",") {
+                    let price_field_end = price_field_start + price_end + 1;
+                    ranges.push(price_field_start..price_field_end);
+                }
+            }
+            
+            // Find "mins" field
+            if let Some(mins_start) = json_content.find("\"mins\":") {
+                let mins_field_start = json_start + mins_start;
+                if let Some(mins_end) = json_content[mins_start..].find(",") {
+                    let mins_field_end = mins_field_start + mins_end;
+                    ranges.push(mins_field_start..mins_field_end);
+                }
+            }
+            
+            // Find "closeTime" field (number value)
+            if let Some(closetime_start) = json_content.find("\"closeTime\":") {
+                let closetime_field_start = json_start + closetime_start;
+                if let Some(closetime_end) = json_content[closetime_start..].find("}") {
+                    let closetime_field_end = closetime_field_start + closetime_end;
+                    ranges.push(closetime_field_start..closetime_field_end);
+                }
+            }
+        }
+    }
+    
+    println!("Binance fallback ranges: {:?}", ranges);
+    ranges
 }

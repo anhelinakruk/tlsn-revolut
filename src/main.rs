@@ -24,11 +24,9 @@ use smol_macros::main;
 #[apply(main!)]
 async fn main() {
     prove(
-        "https://localhost:3001/api/retail/transaction/5".to_string(),
+        "https://api.binance.com/api/v3/avgPrice?symbol=USDTPLN".to_string(),
         vec![
             "user-agent: curl/8.4.0".to_string(),
-            "cookie: test=123".to_string(),
-            "x-device-id: 1234567890".to_string(),
         ],
         "http://localhost:7047".to_string(),
     )
