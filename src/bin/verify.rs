@@ -106,14 +106,6 @@ pub async fn verify_presentation(presentation: Presentation) -> (Vec<u8>, Vec<u8
 
     // Check sent data: check host.
     let sent = transcript.sent_unsafe().to_vec();
-    let sent_data = String::from_utf8(sent.clone()).expect("Verifier expected sent data");
-    sent_data.find(server_name.as_str()).unwrap_or_else(|| {
-        panic!(
-            "Verification failed: Expected host {}",
-            server_name.as_str()
-        )
-    });
-
     // Check received data: check json and version number.
     let received = transcript.received_unsafe().to_vec();
 

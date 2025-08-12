@@ -290,14 +290,10 @@ pub fn get_received_data_ranges<T: TranscriptProvider>(provider: &T) -> Vec<Rang
     // Get the ranges to reveal
     response.get_all_ranges_for_keypaths(
         &[
-            "state",
             "comment",
             "currency",
             "amount",
-            "recipient.account",
             "recipient.username",
-            "recipient.code",
-            "beneficiary.account",
         ],
         &[],
     )
@@ -342,7 +338,7 @@ pub fn get_sent_data_ranges<T: TranscriptProvider>(provider: &T) -> Vec<Range<us
     };
 
     // Get the ranges to reveal
-    request.get_all_ranges_for_keypaths(&[], &["host"])
+    request.get_all_ranges_for_keypaths(&[], &[])
 }
 
 /// Redacts and reveals received data to the verifier (legacy function for Prover)

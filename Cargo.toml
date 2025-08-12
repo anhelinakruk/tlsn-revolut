@@ -43,6 +43,8 @@ anyhow = "1.0.98"
 noir = { git = "https://github.com/piotr-stec/noir-rs", branch = "add/keccak-flavor-bindings", features = [
   "barretenberg",
 ] }
+k256 = { version = "0.13.4", features = ["ecdsa"] }
+blake3 = "1.6.0"
 
 
 [dev-dependencies]

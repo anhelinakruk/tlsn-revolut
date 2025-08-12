@@ -91,6 +91,6 @@ impl Searchable for Request {
     }
 
     fn get_additional_ranges(&self) -> Vec<Range<usize>> {
-        vec![self.request_line.range.clone()]
+        vec![]
     }
 }
