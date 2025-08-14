@@ -289,12 +289,7 @@ pub fn get_received_data_ranges<T: TranscriptProvider>(provider: &T) -> Vec<Rang
 
     // Get the ranges to reveal
     response.get_all_ranges_for_keypaths(
-        &[
-            "comment",
-            "currency",
-            "amount",
-            "recipient.username",
-        ],
+        &["comment", "currency", "amount", "recipient.username"],
         &[],
     )
 }
