@@ -327,8 +327,20 @@ pub fn get_sent_data_ranges<T: TranscriptProvider>(provider: &T) -> Vec<Range<us
         }
     };
 
-    // Get the ranges to reveal
-    request.get_all_ranges_for_keypaths(&[], &[])
+    // Reveal symbol from URL parameter
+    let mut ranges = Vec::new();
+    
+    // Find symbol parameter in URL
+    if let Some(symbol_start) = sent_string.find("symbol=") {
+        let symbol_param_start = symbol_start;
+        if let Some(symbol_end) = sent_string[symbol_start..].find(" HTTP") {
+            let symbol_param_end = symbol_start + symbol_end;
+            ranges.push(symbol_param_start..symbol_param_end);
+            println!("Revealing symbol parameter: {:?}", &sent_string[symbol_param_start..symbol_param_end]);
+        }
+    }
+    
+    ranges
 }
 
 /// Redacts and reveals received data to the verifier (legacy function for Prover)

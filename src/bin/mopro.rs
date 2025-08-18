@@ -37,9 +37,11 @@ fn main() {
     let connection_info_data = bcs::to_bytes(&attestation.body.body.connection_info.data).unwrap();
     let server_ephemeral_key_data = bcs::to_bytes(&attestation.body.body.server_ephemeral_key.data).unwrap();
     let cert_commitment_data = bcs::to_bytes(&attestation.body.body.cert_commitment.data).unwrap();
-    println!("cert_commitment_data: {:?}", cert_commitment_data);
     let transcript_commitments_data = bcs::to_bytes(&attestation.body.body.transcript_commitments[0]).unwrap();
-    println!("transcript_commitments_data: {:?}", transcript_commitments_data);
+    
+    println!("\n=== WITNESS DATA FOR NOIR CIRCUIT CONFIGURATION ===");
+    println!("cert_commitment_data: [{}],", cert_commitment_data.iter().map(|b| format!("\"{}\"", b)).collect::<Vec<_>>().join(", "));
+    println!("transcript_commitments_data: [{}],", transcript_commitments_data[4..].iter().map(|b| format!("\"{}\"", b)).collect::<Vec<_>>().join(", "));
 
     let commitments = attestation.body.body.transcript_commitments;
     let mut encoding_commitment = None;
@@ -58,6 +60,11 @@ fn main() {
         }
 
     let commitment_root = bcs::to_bytes(&encoding_commitment.clone().unwrap().root.value).unwrap();
+    
+    println!("commitment_root: [{}],", commitment_root[1..].iter().map(|b| format!("\"{}\"", b)).collect::<Vec<_>>().join(", "));
+    println!("verifying_key_data: [{}],", verifying_key_data.iter().map(|b| format!("\"{}\"", b)).collect::<Vec<_>>().join(", "));
+    println!("connection_info_data: [{}],", connection_info_data.iter().map(|b| format!("\"{}\"", b)).collect::<Vec<_>>().join(", "));
+    println!("server_ephemeral_key_data: [{}],", server_ephemeral_key_data.iter().map(|b| format!("\"{}\"", b)).collect::<Vec<_>>().join(", "));
 
     let sent= transcript.transcript.sent_unsafe();
     let received = transcript.transcript.received_unsafe(); 
@@ -106,10 +113,13 @@ fn main() {
         }
     println!("Transcript openings: {:?}", transcript_openings);
 
-    for opening in &transcript_openings {
-        println!("Opening: {:?}", opening);
-        println!("Data : {:?}", String::from_utf8_lossy(&opening.data));
-        println!("Data length: {:?}", opening.data.len());
+    println!("\ntranscript_openings_data:");
+    for (i, opening) in transcript_openings.iter().enumerate() {
+        println!("  opening_{}_direction: \"{}\",", i, opening.direction);
+        println!("  opening_{}_data: [{}],", i, opening.data.iter().map(|b| format!("\"{}\"", b)).collect::<Vec<_>>().join(", "));
+        println!("  opening_{}_position: \"{}\",", i, opening.position);
+        println!("  opening_{}_blinder: [{}],", i, opening.blinder.iter().map(|b| format!("\"{}\"", b)).collect::<Vec<_>>().join(", "));
+        println!("  // Data content: {}", String::from_utf8_lossy(&opening.data));
     }
 
     witness.extend(key[1..].iter().map(|n| n.to_string()));
@@ -132,7 +142,17 @@ fn main() {
     witness.extend(encoding_commitment.clone().unwrap().secret.seed().iter().map(|n| n.to_string()));
     witness.extend(encoding_commitment.clone().unwrap().secret.delta().iter().map(|n| n.to_string()));
 
-    // println!("Witness: {:?}", witness);
+    let encoding_commitment_unwrapped = encoding_commitment.clone().unwrap();
+    let encoding_seed = encoding_commitment_unwrapped.secret.seed();
+    let encoding_delta = encoding_commitment_unwrapped.secret.delta();
+    
+    println!("encoding_seed: [{}],", encoding_seed.iter().map(|b| format!("\"{}\"", b)).collect::<Vec<_>>().join(", "));
+    println!("encoding_delta: [{}],", encoding_delta.iter().map(|b| format!("\"{}\"", b)).collect::<Vec<_>>().join(", "));
+    println!("public_key_data: [{}],", key[1..].iter().map(|b| format!("\"{}\"", b)).collect::<Vec<_>>().join(", "));
+    println!("message_data: [{}],", message.iter().map(|b| format!("\"{}\"", b)).collect::<Vec<_>>().join(", "));
+    println!("signature_data: [{}],", signature.iter().map(|b| format!("\"{}\"", b)).collect::<Vec<_>>().join(", "));
+    println!("header_root_data: [{}],", header_root[1..].iter().map(|b| format!("\"{}\"", b)).collect::<Vec<_>>().join(", "));
+    println!("=== END WITNESS DATA ===\n");
 
     println!("Verifying presentation");
     verify_presentation(witness);
@@ -147,7 +167,7 @@ fn verify_presentation(witness: Vec<String>) {
     println!("✔ Bytecode loaded");
     setup_srs_from_bytecode(bytecode, Some("transcript00.dat") , false).unwrap();
     println!("✔ SRS setup from bytecode complete");
-    setup_srs(2584416, None).unwrap();
+    setup_srs(3250433, Some("transcript00.dat")).unwrap();
 
     println!("✔ SRS setup complete");
 
@@ -159,7 +179,7 @@ fn verify_presentation(witness: Vec<String>) {
     let witness = from_vec_str_to_witness_map(witness_strings).unwrap();
     println!("✔ Witness created");
 
-    let proof = prove_ultra_keccak_honk(bytecode, witness, false).unwrap();
+    let proof = prove_ultra_honk(bytecode, witness, false).unwrap();
     println!("✔ Proof generated");
     let vk = get_honk_verification_key(bytecode, false).unwrap();
     println!("✔ Verification key retrieved");

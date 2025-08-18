@@ -1,3 +1,4 @@
+use clap::Parser;
 use http_body_util::Empty;
 use hyper::{
     Request,
@@ -21,14 +22,30 @@ pub use prover::ProverService;
 use macro_rules_attribute::apply;
 use smol_macros::main;
 
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// Trading pair symbol (e.g., USDTPLN, BTCUSDT, ETHUSDT)
+    #[arg(short, long, default_value = "USDTPLN")]
+    symbol: String,
+
+    /// Notary server URL
+    #[arg(short, long, default_value = "http://localhost:7047")]
+    notary: String,
+}
+
 #[apply(main!)]
 async fn main() {
+    let args = Args::parse();
+    
+    let api_url = format!("https://api.binance.com/api/v3/avgPrice?symbol={}", args.symbol);
+    
     prove(
-        "https://api.binance.com/api/v3/avgPrice?symbol=USDTPLN".to_string(),
+        api_url,
         vec![
             "user-agent: curl/8.4.0".to_string(),
         ],
-        "http://localhost:7047".to_string(),
+        args.notary,
     )
     .await
     .unwrap();

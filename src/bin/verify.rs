@@ -14,6 +14,7 @@ pub struct BinancePriceData {
     symbol: String,
     price: String,
     mins: u64,
+    close_time: u64,
 }
 
 #[derive(Error, Debug)]
@@ -139,11 +140,15 @@ fn parse_price_data(sent: &str, received: &str) -> Option<BinancePriceData> {
     let mins = extract_required_value(received, r#""mins":(\d+)"#)?
         .parse()
         .ok()?;
+    let close_time = extract_required_value(received, r#""closeTime":(\d+)"#)?
+        .parse()
+        .ok()?;
 
     Some(BinancePriceData {
         symbol,
         price,
         mins,
+        close_time,
     })
 }
 
