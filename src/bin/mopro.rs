@@ -1,10 +1,12 @@
 use alloy_primitives::{Address, hex::FromHex};
 use alloy_provider::ProviderBuilder;
 use alloy_sol_types::sol;
+use noir::barretenberg::srs::setup_srs_from_bytecode;
+use noir::barretenberg::verify;
 use noir::{
     barretenberg::{
-        prove::prove_ultra_keccak_honk,
-        srs::{setup_srs, setup_srs_from_bytecode},
+        prove::prove_ultra_honk_keccak,
+        srs::setup_srs, verify::get_ultra_honk_keccak_verification_key,
     },
     witness::from_vec_str_to_witness_map,
 };
@@ -21,8 +23,7 @@ use tlsn_core::{
     },
 };
 
-#[tokio::main]
-async fn main() {
+fn main() {
     let presentation = std::fs::read("presentation.tlsn").unwrap();
 
     let presentation: Presentation = bincode::deserialize(&presentation).unwrap();
@@ -162,23 +163,27 @@ async fn main() {
     println!("Witness: {:?}", witness);
 
     println!("Verifying presentation");
-    verify_presentation(witness).await;
+
+    let verify = verify_presentation(witness);
+    println!("✔ Verification process started {:?}", verify);
+
+    // let rt = tokio::runtime::Runtime::new().unwrap();
+    // rt.block_on(verify_presentation(witness));
 }
 
-async fn verify_presentation(witness: Vec<String>) {
-    let json_content = fs::read_to_string("target/noir_verify_presentation.json").unwrap();
+fn verify_presentation(witness: Vec<String>) {
+    let json_content = fs::read_to_string("target/hello_world.json").unwrap();
     let json: serde_json::Value = serde_json::from_str(&json_content).unwrap();
+    println!("✔ JSON file loaded");
 
     let bytecode = json["bytecode"].as_str().unwrap().to_string();
     let bytecode_clone = bytecode.clone();
+    println!("✔ Bytecode loaded from JSON (length: {})", bytecode.len());
 
-    tokio::task::spawn_blocking(move || {
-        setup_srs_from_bytecode(&bytecode, Some("transcript00.dat"), false).unwrap();
-        setup_srs(4194304, Some("transcript00.dat")).unwrap();
-    })
-    .await
-    .unwrap();
-
+    println!("Starting SRS setup with size");
+    setup_srs_from_bytecode(&bytecode, None, false).unwrap();
+    println!("Next step");
+    setup_srs(4194304, None).unwrap();
     println!("✔ SRS setup complete");
 
     let witness_strings: Vec<&str> = witness
@@ -189,19 +194,18 @@ async fn verify_presentation(witness: Vec<String>) {
         .collect::<Vec<&str>>();
 
     let witness = from_vec_str_to_witness_map(witness_strings).unwrap();
+    println!("✔ Witness map created with entries");
 
-    let proof = tokio::task::spawn_blocking(move || {
-        prove_ultra_keccak_honk(&bytecode_clone, witness, false).unwrap()
-    })
-    .await
-    .unwrap();
-    // let proof = fs::read("target/proof").unwrap();
-
+    let vk = get_ultra_honk_keccak_verification_key(&bytecode_clone, false, false).unwrap();
+    println!("✔ Verification key generated");
+    
+    println!("Starting proof generation...");
+    let proof = prove_ultra_honk_keccak(&bytecode_clone, witness, vk, false, false).unwrap();
     println!("✔ proof generated {}", hex::encode(&proof));
 
-    let is_valid = verify_proof(proof).await;
+    // let is_valid = verify_proof(proof).await;
 
-    println!("✔ proof valid? {:?}", is_valid);
+    // println!("✔ proof valid? {:?}", is_valid);
 }
 
 sol! {
