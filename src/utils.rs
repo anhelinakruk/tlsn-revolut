@@ -1,10 +1,11 @@
+use std::io::Read;
 use std::ops::Range;
 
 use pest::Parser;
 use tls_core::verify::WebPkiVerifier;
 use tlsn_core::Secrets;
 use tlsn_core::hash::HashAlgId;
-use tlsn_core::transcript::TranscriptCommitmentKind;
+use tlsn_core::transcript::{Direction, TranscriptCommitmentKind};
 use tlsn_prover::Prover;
 use tlsn_prover::state::Committed;
 
@@ -165,17 +166,45 @@ pub async fn notarize(
     let mut builder = TranscriptCommitConfig::builder(prover.transcript());
 
     // Commit the ranges identified by your parsing functions
-    for range in &recv_ranges {
-        builder
-            .commit_recv(range)
-            .map_err(|e| ProverError::NotarizationFailed(e.to_string()))?;
-    }
+    // for range in &recv_ranges {
+    //     builder
+    //         .commit_recv(range)
+    //         .map_err(|e| ProverError::NotarizationFailed(e.to_string()))?;
+    // }
 
-    for range in &sent_ranges {
-        builder
-            .commit_sent(range)
-            .map_err(|e| ProverError::NotarizationFailed(e.to_string()))?;
-    }
+    // for range in &recv_ranges {
+    //     builder
+    //         .commit_with_kind(range, Direction::Received, TranscriptCommitmentKind::Hash { alg: HashAlgId::SHA256 })
+    //         .map_err(|e| ProverError::NotarizationFailed(e.to_string()))?;
+    // }
+
+    let full_range_received = 0..prover.transcript().received().len();
+    builder
+        .commit_with_kind(
+            &full_range_received,
+            Direction::Received,
+            TranscriptCommitmentKind::Hash {
+                alg: HashAlgId::SHA256,
+            },
+        )
+        .map_err(|e| ProverError::NotarizationFailed(e.to_string()))?;
+
+    // let full_range_sent = 0..prover.transcript().sent().len();
+    // builder
+    //     .commit_with_kind(&full_range_sent, Direction::Sent, TranscriptCommitmentKind::Hash { alg: HashAlgId::SHA256 })
+    //     .map_err(|e| ProverError::NotarizationFailed(e.to_string()))?;
+
+    // for range in &sent_ranges {
+    //     builder
+    //         .commit_with_kind(range, Direction::Sent, TranscriptCommitmentKind::Hash { alg: HashAlgId::SHA256 })
+    //         .map_err(|e| ProverError::NotarizationFailed(e.to_string()))?;
+    // }
+
+    // for range in &sent_ranges {
+    //     builder
+    //         .commit_sent(range)
+    //         .map_err(|e| ProverError::NotarizationFailed(e.to_string()))?;
+    // }
 
     let transcript_commit = builder
         .build()
@@ -202,25 +231,25 @@ pub async fn create_presentation(
     secrets: Secrets,
 ) -> Result<Presentation> {
     let recv_ranges = get_received_data_ranges(&secrets);
-    let sent_ranges = get_sent_data_ranges(&secrets);
+    // let sent_ranges = get_sent_data_ranges(&secrets);
 
     println!("recv_ranges: {:?}", recv_ranges);
-    println!("sent_ranges: {:?}", sent_ranges);
+    // println!("sent_ranges: {:?}", sent_ranges);
 
-    let mut builder = secrets.transcript_proof_builder();
+    let builder = secrets.transcript_proof_builder();
 
     let builder = {
         let mut builder = builder;
-        for range in &recv_ranges {
-            builder
-                .reveal_recv(range)
-                .map_err(|e| ProverError::PresentationCreationFailed(e.to_string()))?;
-        }
-        for range in &sent_ranges {
-            builder
-                .reveal_sent(range)
-                .map_err(|e| ProverError::PresentationCreationFailed(e.to_string()))?;
-        }
+        let full_range_received = 0..secrets.transcript().received().len();
+        builder
+            .reveal_recv(&full_range_received)
+            .map_err(|e| ProverError::PresentationCreationFailed(e.to_string()))?;
+
+        // let full_range_sent = 0..secrets.transcript().sent().len();
+        // let mut sent_string = String::new();
+        // secrets.transcript().sent().read_to_string(&mut sent_string);
+        // println!("Sent data: {}", sent_string);
+        // builder.reveal_sent(&full_range_sent).map_err(|e| ProverError::PresentationCreationFailed(e.to_string()))?;
         builder
     };
 

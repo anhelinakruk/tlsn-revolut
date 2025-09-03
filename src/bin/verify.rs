@@ -12,7 +12,7 @@ use tlsn_core::{
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RevolutTransaction {
-    transaction_id: String,
+    // transaction_id: String,
     state: String,
     comment: String,
     currency: String,
@@ -60,6 +60,7 @@ pub async fn verify(presentation: Vec<u8>) -> Result<(), AppError> {
 
     println!("session_info: {:?}", session_info);
     let sent = bytes_to_redacted_string(&sent);
+    println!("Sent data: {}", sent);
     let received = bytes_to_redacted_string(&received);
 
     let transaction: Option<RevolutTransaction> = parse_transaction(&sent, &received);
@@ -120,7 +121,7 @@ fn bytes_to_redacted_string(bytes: &[u8]) -> String {
 }
 
 fn parse_transaction(sent: &str, received: &str) -> Option<RevolutTransaction> {
-    let transaction_id = extract_required_value(sent, r"transaction/([\w-]+)")?;
+    // let transaction_id = extract_required_value(sent, r"transaction/([\w-]+)")?;
     let state = extract_required_value(received, r#""state":"([^"]+)""#)?;
     let currency = extract_required_value(received, r#""currency":"([^"]+)""#)?;
     let amount: i64 = extract_required_value(received, r#""amount":(-?\d+)"#)?
@@ -154,7 +155,7 @@ fn parse_transaction(sent: &str, received: &str) -> Option<RevolutTransaction> {
     };
 
     Some(RevolutTransaction {
-        transaction_id,
+        // transaction_id,
         state,
         currency,
         amount,

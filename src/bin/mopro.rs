@@ -5,13 +5,14 @@ use noir::barretenberg::srs::setup_srs_from_bytecode;
 use noir::barretenberg::verify;
 use noir::{
     barretenberg::{
-        prove::prove_ultra_honk_keccak,
-        srs::setup_srs, verify::get_ultra_honk_keccak_verification_key,
+        prove::prove_ultra_honk_keccak, srs::setup_srs,
+        verify::get_ultra_honk_keccak_verification_key,
     },
     witness::from_vec_str_to_witness_map,
 };
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fs, vec};
+use tlsn_common::transcript;
 use tlsn_core::{
     attestation::{Extension, Field, Header},
     connection::{ConnectionInfo, ServerCertCommitment, ServerEphemKey},
@@ -24,6 +25,11 @@ use tlsn_core::{
 };
 
 fn main() {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async_main());
+}
+
+async fn async_main() {
     let presentation = std::fs::read("presentation.tlsn").unwrap();
 
     let presentation: Presentation = bincode::deserialize(&presentation).unwrap();
@@ -59,66 +65,8 @@ fn main() {
         transcript_commitments_data
     );
 
-    let commitments = attestation.body.body.transcript_commitments;
-    let mut encoding_commitment = None;
-    for commitment in commitments {
-        match commitment.data {
-            TranscriptCommitment::Encoding(commitment) => {
-                if encoding_commitment.replace(commitment).is_some() {
-                    return;
-                }
-            }
-            TranscriptCommitment::Hash(_) => return,
-            _ => {}
-        }
-    }
-
-    let commitment_root = bcs::to_bytes(&encoding_commitment.clone().unwrap().root.value).unwrap();
-
-    let sent = transcript.transcript.sent_unsafe();
-    let received = transcript.transcript.received_unsafe();
-
-    let mut transcript_openings = Vec::new();
-
-    let EncodingProof {
-        inclusion_proof: _,
-        openings,
-    } = transcript.encoding_proof.unwrap();
-
-    let mut sorted_openings: Vec<_> = openings.into_iter().collect();
-    sorted_openings.sort_by_key(|(id, _)| *id);
-
-    for (
-        id,
-        Opening {
-            direction,
-            idx,
-            blinder,
-        },
-    ) in sorted_openings
-    {
-        let data = match direction {
-            Direction::Sent => sent,
-            Direction::Received => received,
-        };
-
-        let direction_id = match direction {
-            Direction::Sent => 0 as usize,
-            Direction::Received => 1 as usize,
-        };
-
-        for range in idx.iter_ranges() {
-            let data_slice = &data[range.clone()];
-            transcript_openings.push(TranscriptOpening {
-                id,
-                direction: direction_id,
-                data: data_slice.to_vec(),
-                position: range.start,
-                blinder: blinder.as_bytes().to_vec(),
-            });
-        }
-    }
-    println!("Transcript openings: {:?}", transcript_openings);
+    let transcript_data = transcript.transcript.received_unsafe();
+    let transcript_blinder = transcript.hash_secrets[0].blinder.as_bytes();
 
     witness.extend(key[1..].iter().map(|n| n.to_string()));
     witness.extend(message.iter().map(|n| n.to_string()));
@@ -133,46 +81,21 @@ fn main() {
             .iter()
             .map(|n| n.to_string()),
     );
-    witness.extend(commitment_root[1..].iter().map(|n| n.to_string()));
-    witness.extend(transcript_openings.iter().flat_map(|o| {
-        let mut opening_witness = vec![o.direction.to_string()];
-        opening_witness.extend(o.data.iter().map(|n| n.to_string()));
-        opening_witness.extend(o.blinder.iter().map(|n| n.to_string()));
-        opening_witness.push(o.position.to_string());
-        opening_witness
-    }));
-    witness.extend(
-        encoding_commitment
-            .clone()
-            .unwrap()
-            .secret
-            .seed()
-            .iter()
-            .map(|n| n.to_string()),
-    );
-    witness.extend(
-        encoding_commitment
-            .clone()
-            .unwrap()
-            .secret
-            .delta()
-            .iter()
-            .map(|n| n.to_string()),
-    );
+    witness.extend(transcript_data.iter().map(|n| n.to_string()));
+    witness.extend(transcript_blinder.iter().map(|n| n.to_string()));
+
+    // Verify presentation
 
     println!("Witness: {:?}", witness);
 
     println!("Verifying presentation");
 
-    let verify = verify_presentation(witness);
+    let verify = verify_presentation(witness).await;
     println!("✔ Verification process started {:?}", verify);
-
-    // let rt = tokio::runtime::Runtime::new().unwrap();
-    // rt.block_on(verify_presentation(witness));
 }
 
-fn verify_presentation(witness: Vec<String>) {
-    let json_content = fs::read_to_string("target/hello_world.json").unwrap();
+async fn verify_presentation(witness: Vec<String>) {
+    let json_content = fs::read_to_string("target/noir_verify_presentation.json").unwrap();
     let json: serde_json::Value = serde_json::from_str(&json_content).unwrap();
     println!("✔ JSON file loaded");
 
@@ -181,31 +104,38 @@ fn verify_presentation(witness: Vec<String>) {
     println!("✔ Bytecode loaded from JSON (length: {})", bytecode.len());
 
     println!("Starting SRS setup with size");
-    setup_srs_from_bytecode(&bytecode, None, false).unwrap();
-    println!("Next step");
-    setup_srs(4194304, None).unwrap();
-    println!("✔ SRS setup complete");
 
-    let witness_strings: Vec<&str> = witness
-        .iter()
-        .as_slice()
-        .iter()
-        .map(|s| s.as_str())
-        .collect::<Vec<&str>>();
+    let proof = tokio::task::spawn_blocking(move || {
+        setup_srs_from_bytecode(&bytecode, None, false).unwrap();
+        println!("Next step");
+        setup_srs(262146, None).unwrap();
+        println!("✔ SRS setup complete");
 
-    let witness = from_vec_str_to_witness_map(witness_strings).unwrap();
-    println!("✔ Witness map created with entries");
+        let witness_strings: Vec<&str> = witness
+            .iter()
+            .as_slice()
+            .iter()
+            .map(|s| s.as_str())
+            .collect::<Vec<&str>>();
 
-    let vk = get_ultra_honk_keccak_verification_key(&bytecode_clone, false, false).unwrap();
-    println!("✔ Verification key generated");
-    
-    println!("Starting proof generation...");
-    let proof = prove_ultra_honk_keccak(&bytecode_clone, witness, vk, false, false).unwrap();
+        let witness = from_vec_str_to_witness_map(witness_strings).unwrap();
+        println!("✔ Witness map created with entries");
+
+        let vk = get_ultra_honk_keccak_verification_key(&bytecode_clone, false, false).unwrap();
+        println!("✔ Verification key generated");
+
+        println!("Starting proof generation...");
+        prove_ultra_honk_keccak(&bytecode_clone, witness, vk, false, false).unwrap()
+    })
+    .await
+    .unwrap();
+
     println!("✔ proof generated {}", hex::encode(&proof));
 
-    // let is_valid = verify_proof(proof).await;
+    // Remove last 32 bytes from proof
+    let is_valid = verify_proof(proof).await;
 
-    // println!("✔ proof valid? {:?}", is_valid);
+    println!("✔ proof valid? {:?}", is_valid);
 }
 
 sol! {
@@ -221,7 +151,7 @@ async fn verify_proof(proof: Vec<u8>) -> bool {
         .await
         .unwrap();
 
-    let address = Address::from_hex("0x5FbDB2315678afecb367f032d93F642f64180aa3").unwrap();
+    let address = Address::from_hex("0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512").unwrap();
     let contract = HonkVerifier::new(address, provider);
 
     println!("Original proof length: {}", proof.len());
